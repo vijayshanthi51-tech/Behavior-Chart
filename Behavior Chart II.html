@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Boys Behavior Chart</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin:20px; }
+    table { border-collapse: collapse; width:100%; margin-top:10px; }
+    th, td { border:1px solid #ccc; padding:8px; text-align:center; }
+    th { background:#eee; }
+    .btn { padding:5px 10px; margin:2px; cursor:pointer; }
+    .btn-add { background:green; color:white; }
+    .btn-del { background:red; color:white; }
+    .btn-edit { background:orange; color:white; }
+  </style>
+</head>
+<body>
+
+<h2>Login</h2>
+<input id="loginUser" placeholder="Username">
+<input id="loginPass" type="password" placeholder="Password">
+<button onclick="login()">Login</button>
+
+<div id="app" style="display:none;">
+  <h3>Welcome <span id="currentUser"></span></h3>
+  <button onclick="logout()">Logout</button>
+
+  <!-- Change Password -->
+  <h3>Change Password</h3>
+  <input type="password" id="oldPass" placeholder="Old Password">
+  <input type="password" id="newPassChange" placeholder="New Password">
+  <button class="btn btn-add" onclick="changePassword()">Change Password</button>
+
+  <!-- Admin Panel -->
+  <div id="adminPanel" style="display:none; border:1px solid #666; padding:10px; margin-top:20px;">
+    <h3>Admin Panel</h3>
+    <h4>Create New User</h4>
+    <input id="newUser" placeholder="Username">
+    <input id="newPass" placeholder="Password" type="password">
+    <select id="newRole">
+      <option value="staff">Staff</option>
+      <option value="admin">Admin</option>
+    </select>
+    <button class="btn btn-add" onclick="addUser()">Add User</button>
+
+    <h4>Master Boys List</h4>
+    <input id="newBoy" placeholder="Boy Name">
+    <button class="btn btn-add" onclick="addBoy()">Add Boy</button>
+    <ul id="boysList"></ul>
+
+    <h4>Master Behaviors List</h4>
+    <input id="newBehavior" placeholder="Behavior">
+    <select id="behaviorType">
+      <option value="positive">Positive</option>
+      <option value="negative">Negative</option>
+    </select>
+    <input id="behaviorPoints" type="number" placeholder="Points">
+    <input id="behaviorCons" placeholder="Consequence (if negative)">
+    <button class="btn btn-add" onclick="addBehavior()">Add Behavior</button>
+    <ul id="behaviorsList"></ul>
+  </div>
+
+  <!-- Add Behavior Entry -->
+  <h3>Add Behavior Entry</h3>
+  <label>Boy:</label>
+  <select id="boySelect"></select><br><br>
+
+  <label>Description:</label>
+  <input id="descInput" placeholder="Description"><br><br>
+
+  <label>Type:</label>
+  <select id="posNegSelect" onchange="updateBehaviorList()">
+    <option value="positive">Positive</option>
+    <option value="negative">Negative</option>
+  </select><br><br>
+
+  <label>Behavior:</label>
+  <select id="behaviorSelect" onchange="updatePointsConsequences()"></select><br><br>
+
+  <label>Points:</label>
+  <input id="pointsInput" placeholder="Points" readonly><br><br>
+
+  <label>Consequence:</label>
+  <input id="consInput" placeholder="Consequence" readonly><br><br>
+
+  <button class="btn btn-add" onclick="addEntry()">Add Entry</button>
+
+  <!-- Entries Table -->
+  <h3>Behavior Records</h3>
+  <table id="entriesTable">
+    <thead>
+      <tr>
+        <th>Sl.No</th>
+        <th>Boy</th>
+        <th>Behavior</th>
+        <th>Type</th>
+        <th>Merit</th>
+        <th>Demerit</th>
+        <th>Consequence</th>
+        <th>Status</th>
+        <th>Staff</th>
+        <th>Remaining</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <button class="btn btn-add" onclick="exportExcel()">Download Report (Excel)</button>
+  <button class="btn btn-del" onclick="archiveMonth()">Archive & Reset Month</button>
+
+  <h3>Archive History</h3>
+  <ul id="archiveList"></ul>
+</div>
+
+<script>
+// ---------- Default Admin ----------
+let defaultAdmin = {username:"admin", password:"admin123", role:"admin"};
+let users = JSON.parse(localStorage.getItem("users")||"[]");
+if(!users.some(u=>u.role==="admin")){
+  users.push(defaultAdmin);
+  localStorage.setItem("users",JSON.stringify(users));
+}
+
+// ---------- Storage ----------
+let currentUser=null;
+let entries=JSON.parse(localStorage.getItem("entries")||"[]");
+let boys=JSON.parse(localStorage.getItem("boys")||"[]");
+let behaviors=JSON.parse(localStorage.getItem("behaviors")||"[]");
+
+// ---------- Login ----------
+function login(){
+  let u=document.getElementById("loginUser").value.trim();
+  let p=document.getElementById("loginPass").value.trim();
+  let users=JSON.parse(localStorage.getItem("users")||"[]");
+  let user=users.find(x=>x.username===u && x.password===p);
+  if(!user){alert("Invalid login");return;}
+  currentUser=user;
+  document.getElementById("app").style.display="block";
+  document.getElementById("currentUser").innerText=user.username+" ("+user.role+")";
+  if(user.role==="admin") document.getElementById("adminPanel").style.display="block";
+  renderEntries(); renderBoys(); renderBehaviors(); renderArchives();
+  checkMonthReset();
+}
+function logout(){location.reload();}
+
+// ---------- Change Password ----------
+function changePassword() {
+  let oldP = document.getElementById("oldPass").value.trim();
+  let newP = document.getElementById("newPassChange").value.trim();
+  if (!oldP || !newP) return alert("Enter both fields");
+  let users = JSON.parse(localStorage.getItem("users") || "[]");
+  let user = users.find(u => u.username === currentUser.username);
+  if (!user || user.password !== oldP) return alert("Old password incorrect");
+  user.password = newP;
+  localStorage.setItem("users", JSON.stringify(users));
+  alert("Password changed successfully!");
+  document.getElementById("oldPass").value = "";
+  document.getElementById("newPassChange").value = "";
+}
+
+// ---------- Users (Admin only) ----------
+function addUser(){
+  if(currentUser.role!=="admin") return;
+  let u=document.getElementById("newUser").value.trim();
+  let p=document.getElementById("newPass").value.trim();
+  let r=document.getElementById("newRole").value;
+  if(!u||!p) return alert("Enter details");
+  let users=JSON.parse(localStorage.getItem("users")||"[]");
+  if(users.some(x=>x.username===u)) return alert("User exists");
+  users.push({username:u,password:p,role:r});
+  localStorage.setItem("users",JSON.stringify(users));
+  alert("User added");
+}
+
+// ---------- Master Boys ----------
+function addBoy(){
+  let name=document.getElementById("newBoy").value.trim();
+  if(!name) return;
+  boys.push({name});
+  localStorage.setItem("boys",JSON.stringify(boys));
+  document.getElementById("newBoy").value="";
+  renderBoys();
+}
+function renderBoys(){
+  let ul=document.getElementById("boysList"); if(!ul) return;
+  ul.innerHTML="";
+  boys.forEach((b,i)=>{
+    let li=document.createElement("li");
+    li.innerHTML=`${b.name} <button class='btn btn-del' onclick="removeBoy(${i})">Remove</button>`;
+    ul.appendChild(li);
+  });
+  let sel=document.getElementById("boySelect"); sel.innerHTML="";
+  boys.forEach(b=>{
+    let opt=document.createElement("option"); opt.text=b.name; sel.add(opt);
+  });
+}
+
+// ---------- Master Behaviors ----------
+function addBehavior(){
+  let desc=document.getElementById("newBehavior").value.trim();
+  let type=document.getElementById("behaviorType").value;
+  let pts=parseInt(document.getElementById("behaviorPoints").value||0);
+  let cons=document.getElementById("behaviorCons").value.trim();
+  if(!desc||!pts) return;
+  behaviors.push({desc,type,points:pts,cons:(type==="negative"?cons:"")});
+  localStorage.setItem("behaviors",JSON.stringify(behaviors));
+  renderBehaviors();
+}
+function renderBehaviors(){
+  let ul=document.getElementById("behaviorsList"); if(!ul) return;
+  ul.innerHTML="";
+  behaviors.forEach((b,i)=>{
+    let li=document.createElement("li");
+    li.innerHTML=`${b.desc} (${b.type}, ${b.points}) ${b.cons? "-> "+b.cons:""}
+    <button class='btn btn-del' onclick="removeBehavior(${i})">X</button>`;
+    ul.appendChild(li);
+  });
+}
+
+// ---------- Add Behavior Entry ----------
+function updateBehaviorList(){
+  let type = document.getElementById("posNegSelect").value;
+  let behaviorSelect = document.getElementById("behaviorSelect");
+  behaviorSelect.innerHTML = "";
+  behaviors.forEach((b,i)=>{
+    if(b.type === type){
+      let opt = document.createElement("option");
+      opt.text = b.desc;
+      opt.value = i;
+      behaviorSelect.add(opt);
+    }
+  });
+  updatePointsConsequences();
+}
+
+function updatePointsConsequences(){
+  let index = document.getElementById("behaviorSelect").value;
+  if(index === "") return;
+  let b = behaviors[index];
+  document.getElementById("pointsInput").value = b.points;
+  document.getElementById("consInput").value = b.type === "negative" ? b.cons : "";
+}
+
+function addEntry(){
+  let boy = document.getElementById("boySelect").value;
+  let desc = document.getElementById("descInput").value;
+  let type = document.getElementById("posNegSelect").value;
+  let behaviorIndex = document.getElementById("behaviorSelect").value;
+  if(!boy || behaviorIndex === "") return alert("Select all details");
+
+  let points = parseInt(document.getElementById("pointsInput").value || 0);
+  let cons = document.getElementById("consInput").value;
+  let behaviorName = behaviors[behaviorIndex].desc;
+
+  let merit = type==="positive" ? points : 0;
+  let demerit = type==="negative" ? points : 0;
+
+  entries.push({boy, desc, type, merit, demerit, cons, behavior: behaviorName, status:"Pending", staff:currentUser.username});
+  localStorage.setItem("entries", JSON.stringify(entries));
+  renderEntries();
+
+  document.getElementById("descInput").value="";
+  document.getElementById("pointsInput").value="";
+  document.getElementById("consInput").value="";
+}
+
+// ---------- Render Entries ----------
+function renderEntries(){
+  let tbody=document.querySelector("#entriesTable tbody");
+  tbody.innerHTML="";
+  entries.forEach((e,i)=>{
+    let remaining=350+entries.filter(x=>x.boy===e.boy).reduce((a,v)=>a+v.merit-v.demerit,0);
+    let tr=document.createElement("tr");
+    tr.innerHTML=`<td>${i+1}</td>
+      <td>${e.boy}</td>
+      <td>${e.behavior}</td>
+      <td>${e.type}</td>
+      <td>${e.merit}</td>
+      <td>${e.demerit}</td>
+      <td>${e.cons}</td>
+      <td>${e.status}</td>
+      <td>${e.staff}</td>
+      <td>${remaining}</td>
+      <td>${(currentUser.role==="admin"||currentUser.username===e.staff)?
+        "<button class='btn btn-edit' onclick='editEntry("+i+")'>Edit</button><button class='btn btn-del' onclick='delEntry("+i+")'>Del</button>":""}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+function delEntry(i){ if(!(currentUser.role==="admin"||entries[i].staff===currentUser.username))return; entries.splice(i,1); localStorage.setItem("entries",JSON.stringify(entries)); renderEntries();}
+function editEntry(i){
+  let newStatus=prompt("Update status (Pending/In Progress/Completed):", entries[i].status);
+  if(newStatus){entries[i].status=newStatus; localStorage.setItem("entries",JSON.stringify(entries)); renderEntries();}
+}
+
+// ---------- Excel Report ----------
+function exportExcel(){
+  let data=[["Sl.No","Boy","Type","Behavior","Merit","Demerit","Consequence","Remaining","Staff"]];
+  entries.forEach((e,i)=>{
+    let remaining=350+entries.filter(x=>x.boy===e.boy).reduce((a,v)=>a+v.merit-v.demerit,0);
+    data.push([i+1,e.boy,e.type,e.behavior,e.merit,e.demerit,e.cons,remaining,e.staff]);
+  });
+  let ws=XLSX.utils.aoa_to_sheet(data);
+  let wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,"Report");
+  XLSX.writeFile(wb,"Behavior_Report.xlsx");
+}
+
+// ---------- Archive ----------
+function archiveMonth(){
+  if(entries.length===0) return alert("No data");
+  let dateStr=new Date().toISOString().split("T")[0];
+  let archives=JSON.parse(localStorage.getItem("archives")||"[]");
+  archives.push({date:dateStr,data:entries});
+  localStorage.setItem("archives",JSON.stringify(archives));
+  entries=[]; localStorage.setItem("entries",JSON.stringify(entries));
+  renderEntries(); renderArchives();
+}
+function renderArchives(){
+  let archives=JSON.parse(localStorage.getItem("archives")||"[]");
+  let ul=document.getElementById("archiveList"); ul.innerHTML="";
+  archives.forEach((a,i)=>{
+    let li=document.createElement("li");
+    li.innerHTML=`${a.date} <button class='btn btn-add' onclick="downloadArchive(${i})">Download</button>`;
+    ul.appendChild(li);
+  });
+}
+function downloadArchive(i){
+  let archives=JSON.parse(localStorage.getItem("archives")||"[]"); let a=archives[i];
+  let data=[["Sl.No","Boy","Type","Behavior","Merit","Demerit","Consequence","Remaining","Staff"]];
+  a.data.forEach((e,j)=>{
+    let remaining=350+a.data.filter(x=>x.boy===e.boy).reduce((a,v)=>a+v.merit-v.demerit,0);
+    data.push([j+1,e.boy,e.type,e.behavior,e.merit,e.demerit,e.cons,remaining,e.staff]);
+  });
+  let ws=XLSX.utils.aoa_to_sheet(data); let wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,"Archive"); XLSX.writeFile(wb,"Archive_"+a.date+".xlsx");
+}
+
+// ---------- Auto Month Reset ----------
+function checkMonthReset(){
+  let lastMonth=localStorage.getItem("lastArchiveMonth");
+  let now=new Date(); let currentMonth=`${now.getFullYear()}-${now.getMonth()+1}`;
+  if(lastMonth!==currentMonth){ if(entries.length>0) archiveMonth(); localStorage.setItem("lastArchiveMonth",currentMonth);}
+}
+</script>
+</body>
+</html>
